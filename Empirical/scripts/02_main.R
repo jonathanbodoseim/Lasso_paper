@@ -19,7 +19,7 @@ set.seed(123)
 
 # Targets to forecast (character vector of column names in X_data)
 # Extract id numbers from vector (optional)
-targets <- permno_vec[1:4]
+targets <- permno_vec[1:20]
 
 # LASSO settings
 cfg <- list(
@@ -72,7 +72,7 @@ plots <- plot_active_predictors_per_target(
 )
 
 # Example: print one plot (guarded)
-print(plots[[1]])
+# print(plots[[1]])
 
 # ---- Diagnostics: mean number of active regressors per week -------------------
 mean_active_by_week <- out$forecasts %>%
@@ -116,6 +116,10 @@ r2_by_stock <- df_match %>%
 
 print(r2_by_stock)
 readr::write_csv(r2_by_stock, path_r2_csv)
+
+# ---- Plot Lambda vs. Active Predictors --------------------------------
+
+plot_lambda_vs_predictors(out)
 
 
 
