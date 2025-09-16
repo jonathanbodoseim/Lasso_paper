@@ -23,10 +23,10 @@ suppressPackageStartupMessages({
 
 # ---- Paths -------------------------------------------------------------------
 # Adjust these relative paths to match your repo layout
-path_returns_xlsx <- here("data", "return_data.xlsx")
-path_model_rds    <- here("data", "model87_f.rds")
-path_topics_rds   <- here("data", "topic_names.rds")
-path_articles_rds <- here("data", "clean_articles.rds")
+path_returns_xlsx <- here("Empirical", "data", "return_data.xlsx")
+path_model_rds    <- here("Empirical", "data", "model87_f.rds")
+path_topics_rds   <- here("Empirical", "data", "topic_names.rds")
+path_articles_rds <- here("Empirical", "data", "clean_articles.rds")
 path_out_X_csv    <- here("output", "X_data.csv")
 
 # ---- Constants ---------------------------------------------------------------

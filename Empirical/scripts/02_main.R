@@ -12,7 +12,7 @@ suppressPackageStartupMessages({
 })
 
 # ---- Load functions ---------------------------------------------------
-source(here::here("scripts", "_load_functions.R"))
+source(here::here("Empirical","scripts", "_load_functions.R"))
 
 # ---- Configuration ------------------------------------------------------------
 set.seed(123)
