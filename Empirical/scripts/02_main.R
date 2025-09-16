@@ -9,6 +9,7 @@ suppressPackageStartupMessages({
   library(readr)
   library(ggplot2)
   library(purrr)
+  library(doParallel)
 })
 
 # ---- Load functions ---------------------------------------------------
@@ -19,7 +20,7 @@ set.seed(123)
 
 # Targets to forecast (character vector of column names in X_data)
 # Extract id numbers from vector (optional)
-targets <- permno_vec[1:20]
+targets <- permno_vec[100]
 
 # LASSO settings
 cfg <- list(
@@ -42,9 +43,20 @@ path_coefs_csv      <- here::here("output", "lasso_active_coefs.csv")
 path_r2_csv         <- here::here("output", "r2_by_stock.csv")
 dir.create(path_out_dir, showWarnings = FALSE, recursive = TRUE)
 
+# register a foreach backend for parallel CV (if cfg$parallel = TRUE)
+
+
+# pick your core count (avoid using all cores so the OS stays responsive)
+n_cores <- max(1, parallel::detectCores() - 1)
+cl <- makeCluster(n_cores)
+doParallel::registerDoParallel(cl)
 
 # ---- Run rolling LASSO --------------------------------------------------------
-out <- run_lasso_ret_and_topics(
+# For each target stock, the function forms a rolling one-step-ahead forecast of weekly retunrs using a LASSO variable selection on lagged returns + lagged topic shares.
+# The LASSO considers three lags of returns of each stock in the dataset (~480) and three lags of each topic (87). The total number of predictors is thus ~ (480 + 87) * 3 = 1701.
+# At each time t, the LASSO is fit on the previous L = 30 weeks of data. 
+
+out1 <- run_lasso_ret_and_topics(
   X_data        = X_data,
   target_stocks = targets,
   week_col      = cfg$week_col,
@@ -57,6 +69,8 @@ out <- run_lasso_ret_and_topics(
   parallel      = cfg$parallel,
   verbose       = cfg$verbose
 )
+
+stopCluster(cl)
 
 # Save model outputs
 if (nrow(out$forecasts))    readr::write_csv(out$forecasts,    path_forecasts_csv)
@@ -123,4 +137,6 @@ plot_lambda_vs_predictors(out)
 
 
 
-
+quick_result <- calculate_prob_keep(out)
+print(quick_result)
+calculate_prob_keep
