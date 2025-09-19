@@ -44,7 +44,7 @@ run_lasso_ret_and_topics <- function(
   if (!all(target_stocks %in% stock_cols)) stop("Some target_stocks not found among stock columns.")
   .log("✓ Identified %d topic cols, %d stock cols; targets: %s", length(topic_cols), length(stock_cols), paste(target_stocks, collapse=", "))
   
-  build_lag_block <- function(dt, cols, K, tag){
+  build_lag_block <- function(dt, cols, K, tag){             # helper to build lags of returns or topics
     lapply(0:(K-1), function(k){
       block <- dt[, data.table::shift(.SD, n = k, type = "lag"), .SDcols = cols]
       data.table::setnames(block, paste0(cols, "_", tag, "Lag", k)); block
@@ -52,89 +52,73 @@ run_lasso_ret_and_topics <- function(
   }
   
   .log("… Building lag blocks: returns K=%d, topics K=%d", K_ret, K_topic)
-  ret_blocks   <- build_lag_block(X_data, stock_cols, K_ret,   "R")
-  topic_blocks <- build_lag_block(X_data, topic_cols, K_topic, "T")
+  ret_blocks   <- build_lag_block(X_data, stock_cols, K_ret,   "R") # build lags of returns
+  topic_blocks <- build_lag_block(X_data, topic_cols, K_topic, "T") # build lags of topics
   
   .log("… Assembling feature matrix")
-  X_full <- do.call(cbind, c(ret_blocks, topic_blocks))
-  X_full <- cbind(X_data[, ..week_col], X_full)
+  X_full <- do.call(cbind, c(ret_blocks, topic_blocks)) # combine all lag blocks
+  X_full <- cbind(X_data[, ..week_col], X_full) # add week column back
   
-  first_valid_row <- 1 + max(K_ret - 1, K_topic - 1)
-  X_full <- X_full[first_valid_row:.N] # keep only rows from first valid one to last one
-  X_cols <- setdiff(names(X_full), week_col) # build list of predictor columns excluding week
-  Xfull_to_orig <- function(i) first_valid_row - 1 + i
+  first_valid_row <- 1 + max(K_ret - 1, K_topic - 1) # first row with all lags available
+  X_full <- X_full[first_valid_row:.N] # drop initial rows with NA lags
+  X_cols <- setdiff(names(X_full), week_col) # this line defines the predictors
+  Xfull_to_orig <- function(i) first_valid_row - 1 + i # map X_full row index to original X_data row index
   
-  t_idx <- L
-  lo <- t_idx - L + 1; hi <- t_idx
-  X_win <- as.matrix(X_full[lo:hi, X_cols, with = FALSE])
+  t_idx <- L # sets the end index of the very first rolling window
+  lo <- t_idx - L + 1; hi <- t_idx # compute start and end indices of the window
+  X_win <- as.matrix(X_full[lo:hi, X_cols, with = FALSE]) # extracts predictor matrix for the window
   
   cat("Rows in window:", nrow(X_win), "Cols:", ncol(X_win), "\n")
-  
-  # Count row completeness BEFORE filtering
-  cc <- complete.cases(X_win)
-  cat("Complete rows (predictors only):", sum(cc), "of", length(cc), "\n")
-  
-  # Where are the holes?
-  col_na_counts <- colSums(!is.finite(X_win))  # counts NaN/Inf too
-  bad_cols <- sort(col_na_counts[col_na_counts > 0], decreasing = TRUE)
-  cat("Columns with any non-finite in window:", length(bad_cols), "\n")
-  if (length(bad_cols)) print(head(bad_cols, 10))
-  
-  # Y side
-  y_rows_orig <- first_valid_row - 1 + (lo:hi) + 1
-  y_win <- X_data[[target_stocks[1]]][y_rows_orig]
+
+  y_rows_orig <- first_valid_row - 1 + (lo:hi) + 1 # map to original X_data row indices for y; +1 because y should lead X by 1 as we forecast next week
+  y_win <- X_data[[target_stocks[1]]][y_rows_orig] # extract the targets stocks return
   cat("Non-finite in y_win:", sum(!is.finite(y_win)), "\n")
-  
-  # Final keep
-  keep <- complete.cases(X_win) & is.finite(y_win)
+
+  keep <- complete.cases(X_win) & is.finite(y_win) # rows with complete cases in X and finite y
   cat("Rows kept for fit:", sum(keep), "\n")
   
-  all_forecasts <- list(); all_active_coefs <- list()
-  set.seed(seed)
+  all_forecasts <- list(); all_active_coefs <- list() 
+  set.seed(seed) 
   
-  s <- match.arg(lambda_choice, c("lambda.min","lambda.1se"))
+  s <- match.arg(lambda_choice, c("lambda.min","lambda.1se")) # lambda choice for glmnet
   .log("… Rolling LASSO (L=%d, CV folds=%d, lambda=%s, parallel=%s)", L, nfolds_cv, s, parallel)
   
-  for (target in target_stocks) {  # loop over all stocks
+  for (target in target_stocks) {  # loop over all target stocks
     .log("→ Target: %s", target)
     target_res <- list(); target_coef <- list()
-    max_t_idx <- nrow(X_full) - 1
-    if (max_t_idx < L) { .log("  (skipped: not enough rows for window)"); next }
+    max_t_idx <- nrow(X_full) - 1 # can only forecast up to the second-last observation
+    if (max_t_idx < L) { .log("  (skipped: not enough rows for window)"); next } # skip if not enough rows for even one window
     
-    pb <- utils::txtProgressBar(min=L, max=max_t_idx, style=3)
-    for (t_idx in L:max_t_idx) {
-      if (verbose) utils::setTxtProgressBar(pb, t_idx)
+    pb <- utils::txtProgressBar(min=L, max=max_t_idx, style=3) # progress bar
+    for (t_idx in L:max_t_idx) { # rolling window loop
+      if (verbose) utils::setTxtProgressBar(pb, t_idx) # update progress bar
       
-      lo <- t_idx - L + 1; hi <- t_idx
-      X_win <- as.matrix(X_full[lo:hi, X_cols, with = FALSE])
+      lo <- t_idx - L + 1; hi <- t_idx # define window bounds
+      X_win <- as.matrix(X_full[lo:hi, X_cols, with = FALSE]) # extract predictor matrix for the window
       
-      y_rows_orig <- Xfull_to_orig(lo:hi) + 1
-      y_win <- X_data[[target]][y_rows_orig]
-      
-      # Sanity check: y_win should equal a lead(1) of target aligned to X_full
-      y_check <- X_data[[target]][Xfull_to_orig(lo:hi) + 1]
-      if (!all.equal(y_win, y_check, check.attributes = FALSE)) {
-        warning(sprintf("Lead-1 misalignment detected at target=%s, window ending t_idx=%d", target, t_idx))
-      }
-      
-      keep <- stats::complete.cases(X_win) & !is.na(y_win)
-      X_win_k <- X_win[keep, , drop = FALSE]; y_win_k <- y_win[keep]
-      if (nrow(X_win_k) < 5) next
+      y_rows_orig <- Xfull_to_orig(lo:hi) + 1 # map to original X_data row indices for y; +1 because y should lead X by 1 as we forecast next week
+      y_win <- X_data[[target]][y_rows_orig] # y_win is target returns one-week ahead of X_win
+            
+      keep <- stats::complete.cases(X_win) & !is.na(y_win) # rows with complete cases in X and non-missing y
+      X_win_k <- X_win[keep, , drop = FALSE]; y_win_k <- y_win[keep] # keep only those rows
+      if (nrow(X_win_k) < 5) next # skip if too few rows after dropping NAs
       
       cvfit <- glmnet::cv.glmnet(x = X_win_k, y = y_win_k, family = "gaussian", alpha = 1,
-                                 nfolds = nfolds_cv, parallel = parallel, standardize = TRUE)
+                                 nfolds = nfolds_cv, parallel = parallel, standardize = TRUE) # fit LASSO with CV
       
-      coefs <- as.matrix(stats::coef(cvfit, s = s))
-      intercept <- as.numeric(coefs[1, , drop = TRUE])
+      # extract estimation results
+      coefs <- as.matrix(stats::coef(cvfit, s = s)) 
+      intercept <- as.numeric(coefs[1, , drop = TRUE]) 
       betas <- coefs[-1, , drop = TRUE]; rn <- rownames(coefs)[-1]
       active_idx <- which(abs(betas) > nonzero_tol)
       
-      x_t  <- as.matrix(X_full[t_idx, X_cols, with = FALSE])
-      f_t1 <- as.numeric(stats::predict(cvfit, newx = x_t, s = s))
+      x_t  <- as.matrix(X_full[t_idx, X_cols, with = FALSE]) # predictor values at time t (row t_idx of X_full)
+      f_t1 <- as.numeric(stats::predict(cvfit, newx = x_t, s = s)) # one-step-ahead forecast for time t+1
       
-      week_t    <- X_full[[week_col]][t_idx]
+      week_t    <- X_full[[week_col]][t_idx] # 
       week_pred <- X_data[[week_col]][ Xfull_to_orig(t_idx) + 1 ]
       
+      # store results
       target_res[[length(target_res) + 1]] <- data.table::data.table(
         target_stock = target, week_t = week_t, week_pred = week_pred,
         forecast = f_t1, intercept = intercept,
@@ -142,6 +126,7 @@ run_lasso_ret_and_topics <- function(
         n_active = length(active_idx)
       )
       
+      # store non-zero coefficients
       if (length(active_idx) > 0) {
         target_coef[[length(target_coef) + 1]] <- data.table::data.table(
           target_stock = target, week_t = week_t,
@@ -149,22 +134,22 @@ run_lasso_ret_and_topics <- function(
         )
       }
     }
-    if (verbose) close(pb)
+    if (verbose) close(pb) 
     
-    all_forecasts[[target]]    <- if (length(target_res))  data.table::rbindlist(target_res)  else data.table::data.table()
-    all_active_coefs[[target]] <- if (length(target_coef)) data.table::rbindlist(target_coef) else data.table::data.table()
+    all_forecasts[[target]]    <- if (length(target_res))  data.table::rbindlist(target_res)  else data.table::data.table() 
+    all_active_coefs[[target]] <- if (length(target_coef)) data.table::rbindlist(target_coef) else data.table::data.table() 
     .log("✓ Done target %s: %d forecasts, %d non-zero predictors", target,
          nrow(all_forecasts[[target]]), nrow(all_active_coefs[[target]]))
   }
   
-  t1 <- Sys.time(); .log("✔ Finished in %.2f sec", as.numeric(difftime(t1, t0, units="secs")))
+  t1 <- Sys.time(); .log("✔ Finished in %.2f sec", as.numeric(difftime(t1, t0, units="secs"))) # log finish time
   
   list(
     forecasts    = data.table::rbindlist(all_forecasts, fill = TRUE),
     active_coefs = data.table::rbindlist(all_active_coefs, fill = TRUE),
     meta = list(L=L, K_ret=K_ret, K_topic=K_topic, lambda_choice=s,
                 predictors="3 lags of ALL returns + 3 lags of ALL topics",
-                started=t0, finished=t1)
+                started=t0, finished=t1) # metadata
   )
 }
 
