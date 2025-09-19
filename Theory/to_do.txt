@@ -1,0 +1,8 @@
+- Out of sample properties
+- Sharpe ratio
+- can we manipulate the market?
+- negative r_squared out of sample
+- check the GLMnet function
+- investors with different predictors,
+- check if the paper is consistent with random model
+- have a look at the paper sent in chat

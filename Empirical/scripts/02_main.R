@@ -12,8 +12,7 @@ suppressPackageStartupMessages({
 })
 
 # ---- Load functions ---------------------------------------------------
-source(here::here("scripts", "_load_functions.R"))
-
+source(here::here("Empirical", "scripts", "_load_functions.R"))
 # ---- Configuration ------------------------------------------------------------
 set.seed(123)
 
@@ -35,11 +34,11 @@ cfg <- list(
 )
 
 # Output paths
-path_out_dir        <- here::here("output")
-path_plot_dir       <- here::here("output", "plots_active_predictors")
-path_forecasts_csv  <- here::here("output", "lasso_forecasts.csv")
-path_coefs_csv      <- here::here("output", "lasso_active_coefs.csv")
-path_r2_csv         <- here::here("output", "r2_by_stock.csv")
+path_out_dir        <- here::here("Empirical","output")
+path_plot_dir       <- here::here("Empirical","output", "plots_active_predictors")
+path_forecasts_csv  <- here::here("Empirical","output", "lasso_forecasts.csv")
+path_coefs_csv      <- here::here("Empirical","output", "lasso_active_coefs.csv")
+path_r2_csv         <- here::here("Empirical","output", "r2_by_stock.csv")
 dir.create(path_out_dir, showWarnings = FALSE, recursive = TRUE)
 
 
