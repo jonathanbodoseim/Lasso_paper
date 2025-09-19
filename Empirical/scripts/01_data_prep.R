@@ -23,11 +23,11 @@ suppressPackageStartupMessages({
 
 # ---- Paths -------------------------------------------------------------------
 # Adjust these relative paths to match your repo layout
-path_returns_xlsx <- here("Empirical", "data", "return_data.xlsx")
-path_model_rds    <- here("Empirical", "data", "model87_f.rds")
-path_topics_rds   <- here("Empirical", "data", "topic_names.rds")
-path_articles_rds <- here("Empirical", "data", "clean_articles.rds")
-path_out_X_csv    <- here("Empirical", "output", "X_data.csv")
+path_returns_xlsx <- here("data", "return_data.xlsx")
+path_model_rds    <- here("data", "model87_f.rds")
+path_topics_rds   <- here("data", "topic_names.rds")
+path_articles_rds <- here("data", "clean_articles.rds")
+path_out_X_csv    <- here("output", "X_data.csv")
 
 # ---- Constants ---------------------------------------------------------------
 bad_permnos <- c(
@@ -112,29 +112,7 @@ X_data <- weekly_wide %>%
 
 # Ensure output directory exists and write CSV
 dir.create(dirname(path_out_X_csv), showWarnings = FALSE, recursive = TRUE)
+dir.create(dirname(path_out_permno_csv), showWarnings = FALSE, recursive = TRUE)
+
 write_csv(X_data, path_out_X_csv)
-
-# ---- Time-Series Diagnostics --------------------------------------------------
-# Drop the week column to get a numeric matrix/data frame of returns
-returns_mat <- weekly_wide %>% select(-week)
-
-check_ts <- function(x) {
-  x <- as.numeric(x)
-  x <- x[!is.na(x)]
-  if (length(x) < 15) {
-    return(tibble(adf_p = NA_real_, lb_ret_p = NA_real_, lb_sq_p = NA_real_))
-  }
-  adf_p    <- tryCatch(adf.test(x)$p.value, error = function(e) NA_real_)
-  lb_ret_p <- tryCatch(Box.test(x,  lag = 10, type = "Ljung-Box")$p.value, error = function(e) NA_real_)
-  lb_sq_p  <- tryCatch(Box.test(x^2, lag = 10, type = "Ljung-Box")$p.value, error = function(e) NA_real_)
-  tibble(adf_p = adf_p, lb_ret_p = lb_ret_p, lb_sq_p = lb_sq_p)
-}
-
-# Example: apply to the first 10 series (or fewer if fewer columns)
-n_to_check <- min(10L, ncol(returns_mat))
-results <- returns_mat[, seq_len(n_to_check), drop = FALSE] %>%
-  purrr::map_dfr(check_ts, .id = "series")
-
-print(results)
-
-
+write_csv(permno_ticker, path_out_permno_csv)
