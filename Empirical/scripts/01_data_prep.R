@@ -28,6 +28,7 @@ path_model_rds    <- here("data", "model87_f.rds")
 path_topics_rds   <- here("data", "topic_names.rds")
 path_articles_rds <- here("data", "clean_articles.rds")
 path_out_X_csv    <- here("output", "X_data.csv")
+path_out_permno_csv    <- here("output", "permno.csv")
 
 # ---- Constants ---------------------------------------------------------------
 bad_permnos <- c(
