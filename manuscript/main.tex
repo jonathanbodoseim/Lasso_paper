@@ -1,0 +1,180 @@
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Template for working papers
+%% Tommaso Di Francesco
+%% University of Amsterdam
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Version 1.0 // February 2024
+%% 
+\documentclass[11pt]{article}
+\usepackage{style}
+
+
+%% ===============================================
+%% Setting the line spacing (3 options: only pick one)
+% \doublespacing
+% \singlespacing
+\onehalfspacing
+%% ===============================================
+
+\setlength{\droptitle}{-5em} %% Don't touch
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% SET THE TITLE
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% TITLE:
+\title{Lasso Trading
+}
+\author{}
+% DATE:
+\date{\today}
+
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{document}
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% ABSTRACT
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+{\setstretch{.8}
+\maketitle
+\centering
+% %%%%%%%%%%%%%%%%%%
+
+
+}
+
+
+% --------------------
+\section{Draft}
+% --------------------
+
+Consider a simple asset pricing model in which the equilibrium price of a stochastic asset evolves accrodingly to the following law of Motion
+\begin{equation}
+    p_t = p^{e}_{t+1} + u_t,
+\end{equation}
+
+where $p_t$ is the equilibrium price at time $t$, $p^{e}_{t+1}$ is the expected price at time $t+1$ formed at time $t$ \textit{before} the realization of the equilibrium price and $u_t \sim N(0, \sigma^2_u)$.
+We assume that agents are boundedly rational and are not aware of the true data generating process.
+Instead they rely on econometric techniques to form their expectations.
+Specifically we assume that agents have a linear and stationary perceived law of motion (PLM) for the asset return 
+\begin{equation}
+r_{t+1} = \beta \theta_t + \varepsilon_t,
+\end{equation}
+where $\theta_t$ is a stochastic signal that agents observe and $\varepsilon_t \sim N(0, \sigma^2_\varepsilon)$.
+
+In order to estimate the parameter agent use Recursive Ordinary Least square of the form 
+
+\begin{equation}
+\hat{\beta_t} = \frac{\sum^{t-1}_{s=0} r_{s} \theta_{s-1}}{\sum^{t-1}_{s=0}(\theta_{s-1})^2},
+\end{equation}
+
+in which the time indexes are consistent with the timeline of events which implies that at time $t$ the last observable return that can be used for estimation is $r_{t-1}$.
+The Actual Law of Motion (ALM) for the asset price obtains by substituting the PLM into the equilibrium condition
+
+\begin{equation}
+p_t = p^{e}_{t+1} + u_t = (1 + \hat{\beta_t} \theta_t) p^e_{t},
+\end{equation}
+
+where again $p^e_{t}$ stresses that the current price is not available to agents when making their forecats.
+Consisten with their model
+
+\begin{equation}
+p^e_t = (1 +\hat{\beta_t} \theta_{t+1}) p_{t-1},
+\end{equation}
+where the use of $\hat{\beta_t}$ is justified by the belief that there is a constant homogenous $\beta$ and so it make sense for agents to use the 'smoothed' estimate obtained by considering also the return at time $t-1$ in place of $\hat{\beta_{t-1}}$.
+This implies an ALM for the current price
+
+\begin{equation}
+p_t = (1 + \hat{\beta_t} \theta_t)(1 + \hat{\beta_t} \theta_{t-1}) p_{t-1} + u_t,
+\end{equation}
+
+and it follows that future returns evolve according to 
+
+\begin{equation}
+r_{t+1} = \hat{\beta_{t+1}} \theta_{t+1} + \hat{\beta_{t+1}} \theta_t + (\hat{\beta_{t+1}})^2 \theta_{t+1} \theta_t + \frac{u_t}{p_{t-1}}.
+\end{equation}
+
+\subsection{Existence of self-fulfilling equilibria}
+
+A self-fulfilling equilibrium requires consistency between the regression coefficient that agents would estimate from the ALM and the actual $\beta$ implied by their forecast. 
+Formally, let the regression coefficient that would be estimated from the ALM if agents used a constant $\beta$ be denoted by $\hat{\beta}$, we require
+
+\begin{equation}
+\hat{\beta_t} =  \beta(\hat{\beta_t}) = \frac{\operatorname{Cov}(r_{t+1},\theta_t)}{\operatorname{Var}(\theta_t)}
+\end{equation}
+
+where the notation stresses that the population parameter $\beta$ is a function of the estimated parameter $\hat{\beta_t}$.
+A self-fulfilling equilibrium is a fixed point of this function, i.e. a solution to the equation $\hat{\beta} = \beta(\hat{\beta})$.
+
+Now
+\begin{equation}
+\operatorname{Cov}\big(r_{t+1},\theta_t\big)
+= \hat{\beta}\,\operatorname{Cov}(\theta_{t+1},\theta_t)
++ \hat{\beta}\,\operatorname{Var}(\theta_t)
++ \hat{\beta}^2\,\operatorname{Cov}(\theta_{t+1}\theta_t,\theta_t)
++ \operatorname{Cov}\!\Big(\frac{u_t}{p_{t-1}},\theta_t\Big).
+\end{equation}
+
+Given $u_t$ is mean zero and independent of $\theta$, the last term is zero, moreover if we assume that $\theta_t$ is iid
+then every term except the variance is zero and we obtain
+\begin{equation}
+\hat{\beta}=\hat{\beta},
+\end{equation}
+
+which implies that every $\hat{\beta}$ leads to a self-fulfilling equilibrium.
+
+\subsection{Multiple regressors}
+We now move to the case in wich instead of a single regressor $\theta_t$ agents observe a vector of $K$ different signals $\theta_{t} = (\theta_{1,t}, \theta_{2,t}, \ldots, \theta_{K,t})$.
+To be consistent with dimensions we write the PLM as
+\begin{equation}
+r_{t+1} =  \theta_t \beta + \varepsilon_t,
+\end{equation}
+where $\beta = (\beta_1, \beta_2, \ldots, \beta_K)^\top$ is a $K$-dimensional column vector of parameters.
+The ALM follows accrodingly as
+\begin{equation}
+    r_{t+1} = \theta_{t+1} \hat{\beta}+ \theta_t \hat{\beta}+ (\theta_{t+1} \beta)(\theta_t \beta) + \frac{u_t}{p_{t-1}}.
+\end{equation}
+
+Defining 
+\begin{equation}
+    \Theta_t = \begin{pmatrix}
+    \theta_{1} \\
+     \theta_{2}\\
+        \vdots \\
+    \theta_{t} 
+\end{pmatrix}
+\quad 
+R_t = \begin{pmatrix}
+    r_{2} \\
+     r_{3}\\
+        \vdots \\
+    r_{t+1}
+\end{pmatrix},
+\end{equation}
+as the $t \times K$ matrix of regressors and the $t$-dimensional vector of returns up to time $t+1$,  the consistency condition requires
+
+\begin{equation}
+    \hat{\beta} = (\Theta_t^\top \Theta_t)^{-1} \Theta_t^\top R_{t} = \beta,
+\end{equation}
+
+and the ALM in matrix form is
+\begin{equation}
+    R_t = \Theta_{t+1} \hat{\beta}+ \Theta_t \hat{\beta}+ (\Theta_{t+1} \hat{\beta})(\Theta_t \hat{\beta}) + \frac{U_t}{P_{t-1}},
+\end{equation}
+
+where again we use the notation $U_t$ and $P_{t-1}$ to denote the vectors of shocks and prices up to the corresponding time periods.
+
+Now asymptotically we can show that 
+
+\begin{equation}
+    \mathbb{E}[\Theta_t^\top R_t] = \mathbb{E}[\Theta_t^\top \Theta_{t+1}] \hat{\beta}+ \mathbb{E}[\Theta_t^\top \Theta_t] \hat{\beta} + \mathbb{E}[\Theta_t^\top (\Theta_{t+1} \hat{\beta})(\Theta_t \hat{\beta})] + \mathbb{E}\Big[\Theta_t^\top \frac{U_t}{P_{t-1}}\Big] = \mathbb{E}[\Theta_t^\top \Theta_t] \hat{\beta},
+\end{equation}
+
+
+which again implies that every $\hat{\beta}$ is a self-fullfilling equilibriums since
+\begin{equation}
+    \mathbb{E}[\hat{\beta}] = \mathbb{E}[(\Theta_t^\top \Theta_t)^{-1}] \mathbb{E}[\Theta_t^\top R_{t}] = \hat{\beta}.
+\end{equation}
+
+\end{document}
