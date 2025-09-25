@@ -7,7 +7,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-load(here("data", "X_data"))
+load(here("Empirical","data", "X_data"))
 
 # --- inputs ---
 X <- as.data.table(X_data)                
@@ -54,18 +54,27 @@ registerDoParallel(cl)
 forecasts_4 <- list()
 coefs_4     <- list()
 
-# setup progress bar
+# Calculate total iterations for progress tracking
 total_iterations <- 0 
 for (target in target_stocks) {
   max_t <- nrow(Xmat) - 1L
-  if (max_t >= L) {
-    total_iterations <- total_iterations + (max_t - L)
+  if (max_t >= (L + gap)) {
+    total_iterations <- total_iterations + (max_t - (L + gap) + 1)
   }
 }
-current_iteration <- 0
-cat("Running rolling lasso for", length(target_stocks), "stocks...\n")
-cat("Progress: [", rep(" ", 50), "]\r", sep = "")
 
+current_iteration <- 0
+cat("Running rolling lasso for", length(target_stocks), "stocks with", total_iterations, "total iterations...\n")
+
+# Progress bar function
+update_progress <- function(current, total, width = 50) {
+  percent <- current / total
+  filled <- round(width * percent)
+  bar <- paste0(c(rep("=", filled), rep("-", width - filled)), collapse = "")
+  cat(sprintf("\rProgress: [%s] %5.1f%% (%d/%d)", bar, percent * 100, current, total))
+  if (current == total) cat("\n")
+  flush.console()
+}
 
 # --- rolling lasso per target ---
 
@@ -74,6 +83,11 @@ for (target in target_stocks) {
   if (max_t < (L + gap)) next
   
   for (t in (L + gap):max_t) {
+    # Update progress
+    current_iteration <- current_iteration + 1
+    if (current_iteration %% 10 == 0 || current_iteration == total_iterations) {
+      update_progress(current_iteration, total_iterations)
+    }
 
     hi <- t - gap
     lo <- hi - (L - 1L)
@@ -135,12 +149,12 @@ for (target in target_stocks) {
 
 stopCluster(cl)
 
-cat("Progress: [", rep("=", 50), "] 100.0% - Complete!\n", sep = "")
+# Ensure final progress update
+if (current_iteration < total_iterations) {
+  update_progress(total_iterations, total_iterations)
+}
 
-
-
-
-
+cat("Complete! Processed", current_iteration, "iterations.\n")
 
 # --- tidy results ---
 forecasts_4 <- if (length(forecasts_4)) do.call(rbind, forecasts_4) else data.frame()
