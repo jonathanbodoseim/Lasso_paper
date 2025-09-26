@@ -1,0 +1,7 @@
+{
+  "L": 30,
+  "K_ret": 3,
+  "K_topic": 3,
+  "nfolds": 10,
+  "lambda_choice": "lambda.min"
+}
