@@ -3,34 +3,36 @@ suppressPackageStartupMessages({
   library(glmnet)
   library(doParallel)
   library(readr)  
-  library(here)   
+  library(here)  
   library(ggplot2)
+  library(dplyr)
+  library(arrow)
+  library(jsonlite)
+  library(scales)
 })
 
-# ---- Load Data ------------------------------------------------
 load(here("data", "X_data"))
 
-# --- inputs ------------------------------------------------
+# --- inputs ---
 X <- as.data.table(X_data)                
 setorder(X, date)
+permno_ticker <- colnames(X_data)
 topic_cols <- grep("^Topic_", names(X), value = TRUE)
 stock_cols <- setdiff(setdiff(names(X), "date"), topic_cols)
-target_stocks <- stock_cols
-K <- 3                                                    
-L <- 30 
-gap <- K          # use only lags outside of training window for forecast
-nfolds <- 10 
-
+target_stocks <- as.character(permno_ticker[2:486])
+K <- 3                                                  
+L <- 30                                                   
+nfolds <- 10                                          
 set.seed(1)
 
 # --- build 3 lags for returns and topics ---
 lag_block <- function(dt, cols, K, tag) {
-    lags <- lapply(0:(K-1), function(k) {
-    lagged <- dt[, shift(.SD, n = k), .SDcols = cols]
-    setnames(lagged, paste0(cols, "_", tag, "Lag", k))
-    lagged
-  })
-  do.call(cbind, lags)
+  if (!length(cols)) return(NULL)
+  do.call(cbind, lapply(0:(K-1), function(k) {
+    out <- dt[, shift(.SD, n = k), .SDcols = cols]
+    setnames(out, paste0(cols, "_", tag, "Lag", k))
+    out
+  }))
 }
 
 Xlag <- cbind(
@@ -39,21 +41,21 @@ Xlag <- cbind(
   lag_block(X, topic_cols, K, "T")
 )
 
-first_valid <- 1 + (K - 1)                 
+first_valid <- 1 + (K - 1)                 # first row with all lags available
 Xlag <- Xlag[first_valid:.N]
-pred_cols <- setdiff(names(Xlag), "date")  
+pred_cols <- setdiff(names(Xlag), "date")  # extract names of predictors
 Xmat     <- as.matrix(Xlag[, ..pred_cols])
 dates_t  <- Xlag$date
-orig_idx <- first_valid:nrow(X)           
+orig_idx <- first_valid:nrow(X)            # map back to original X rows
 
-# use all available cores
+# --- rolling lasso per target ---
+# setup parallelization
 n_cores <- parallel::detectCores(logical = TRUE)
 cl <- makeCluster(max(1L, n_cores - 1L))   # leave 1 core free
 registerDoParallel(cl)
 
-# setup lists to store results
-forecasts_4 <- list()
-coefs_4     <- list()
+forecasts <- list()
+coefs     <- list()
 
 # setup progress bar
 total_iterations <- 0 
@@ -63,22 +65,29 @@ for (target in target_stocks) {
     total_iterations <- total_iterations + (max_t - L)
   }
 }
+
+# Initialize progress tracking
 current_iteration <- 0
 cat("Running rolling lasso for", length(target_stocks), "stocks...\n")
 cat("Progress: [", rep(" ", 50), "]\r", sep = "")
 
-
-# --- rolling lasso per target ---
-
 for (target in target_stocks) {
   max_t <- nrow(Xmat) - 1L
-  if (max_t < (L + gap)) next
+  if (max_t < L) next
   
-  for (t in (L + gap):max_t) {
-
-    hi <- t - gap
-    lo <- hi - (L - 1L)
+  for (t in (L+1):max_t) {
+    
+    # Update progress bar
+    current_iteration <- current_iteration + 1
+    progress_pct <- current_iteration / total_iterations
+    filled_bars <- round(progress_pct * 50)
+    cat("Progress: [", rep("=", filled_bars), rep(" ", 50 - filled_bars), "] ", 
+        round(progress_pct * 100, 1), "%\r", sep = "")
+    flush.console()
+    
+    lo <- t - L; hi <- t - 1          # excludes Xmat[t,] from training  
     X_win <- Xmat[lo:hi, , drop = FALSE]
+    
     y_idx <- orig_idx[lo:hi] + 1L
     y_idx <- y_idx[y_idx <= nrow(X)]
     X_win <- X_win[seq_along(y_idx), , drop = FALSE]
@@ -93,19 +102,24 @@ for (target in target_stocks) {
         standardize = TRUE, parallel = TRUE
       )
       
+      # --- lambda bookkeeping (must be defined before using below) ---
       lambda_min  <- fit$lambda.min
       lambda_max  <- fit$lambda[1]
       lambda_norm <- lambda_min / lambda_max
       
+      # prediction at lambda.min
       f <- as.numeric(predict(fit, newx = Xmat[t, , drop = FALSE], s = "lambda.min"))
       
+      # Count non-zero predictors (excluding intercept)
       b  <- as.matrix(coef(fit, s = "lambda.min"))[-1, , drop = TRUE]
       n_predictors <- sum(b != 0)
       
+      # safe date_pred
       wp_idx <- orig_idx[t] + 1L
       date_pred_val <- if (wp_idx <= nrow(X)) X$date[wp_idx] else NA
       
-      forecasts_4[[length(forecasts_4) + 1L]] <- data.frame(
+      # save forecast row
+      forecasts[[length(forecasts) + 1L]] <- data.frame(
         target_stock = target,
         date_t       = dates_t[t],
         date_pred    = date_pred_val,
@@ -117,9 +131,10 @@ for (target in target_stocks) {
         stringsAsFactors = FALSE
       )
       
+      # save coefficient rows (only if any active)
       nz <- which(b != 0)
       if (length(nz)) {
-        coefs_4[[length(coefs_4) + 1L]] <- data.frame(
+        coefs[[length(coefs) + 1L]] <- data.frame(
           target_stock = target,
           date_t       = dates_t[t],
           predictor    = names(b)[nz],
@@ -136,19 +151,21 @@ for (target in target_stocks) {
 
 stopCluster(cl)
 
+# Complete progress bar
 cat("Progress: [", rep("=", 50), "] 100.0% - Complete!\n", sep = "")
 
 # --- tidy results ---
-forecasts_4 <- if (length(forecasts_4)) do.call(rbind, forecasts_4) else data.frame()
-coefs_4     <- if (length(coefs_4))     do.call(rbind, coefs_4)     else data.frame()
-results_4 <- list(
-  forecasts_4 = as.data.table(forecasts_4),
-  active_coefs_4 = as.data.table(coefs_4),
-  meta_4 = list(L = L, K_ret = K, K_topic = K, nfolds = nfolds, lambda_choice = "lambda.min")
+forecasts <- if (length(forecasts)) do.call(rbind, forecasts) else data.frame()
+coefs     <- if (length(coefs))     do.call(rbind, coefs)     else data.frame()
+
+results <- list(
+  forecasts = as.data.table(forecasts),
+  active_coefs = as.data.table(coefs),
+  meta = list(L = L, K_ret = K, K_topic = K, nfolds = nfolds, lambda_choice = "lambda.min")
 )
 
-
 # --- save results ---
-write_parquet(results_4$forecasts_4,    file.path(here("output"), "forecasts.parquet"), compression = "zstd")
-write_parquet(results_4$active_coefs_4, file.path(here("output"), "active_coefs.parquet"), compression = "zstd")
-write_json(results_4$meta_4,            file.path(here("output"), "meta.json"), pretty = TRUE, auto_unbox = TRUE)
+write_parquet(results$forecasts,    file.path(here("output"), "forecasts.parquet"), compression = "zstd")
+write_parquet(results$active_coefs, file.path(here("output"), "active_coefs.parquet"), compression = "zstd")
+write_json(results$meta,            file.path(here("output"), "meta.json"), pretty = TRUE, auto_unbox = TRUE)
+

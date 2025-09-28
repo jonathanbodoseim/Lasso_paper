@@ -61,7 +61,8 @@
 
 \begin{abstract}
 \noindent
-We generate one-day-ahead return forecasts for the full universe of S\&P 500 stocks using two sets of predictors: (i) lagged returns of all index stocks and (ii) estimates of news attention to business and finance topics. We follow \cite{chinco2019sparse} and employ the Least Absolute Shrinkage and Selection Operator (LASSO). This approach allows us to handle a high-dimensional predictor set with relatively few observations by shrinking most coefficients to zero and retaining only a sparse subset of predictive signals. Our results show that (i) the LASSO forecast alone rarely delivers positive out-of-sample $R^2$ values, (ii) [INSERT RESULT OF COMBINED FORECAST], (iii) the number of selected predictors declines monotonically with the penalty parameter $\lambda$, and (iv) only about 8\% of selected predictors exhibit time-series persistence, with substantial variation across the observation window.
+We generate one-day-ahead return forecasts for the full universe of S\&P 500 stocks using two sets of predictors: (i) lagged returns of all index stocks and (ii) estimates of news attention to business and finance topics. We follow \cite{chinco2019sparse} and employ the Least Absolute Shrinkage and Selection Operator (LASSO). This approach allows us to handle a high-dimensional predictor set with relatively few observations by shrinking most coefficients to zero and retaining only a sparse subset of predictive signals. 
+Our results show that (i) the number of selected predictors decreases monotonically with the penalty parameter $\lambda$, which tends to rise during volatile periods, (ii) combining the LASSO forecast with an AR(3) benchmark explains on average an additional 2.1\% of daily return variation, and (iii) only about 7\% of selected predictors exhibit time-series persistence, with higher persistence during episodes of market stress such as the COVID-19 crash.
 \end{abstract}
 
 \section{Data}
@@ -82,8 +83,8 @@ We generate one-day-ahead return forecasts for the full universe of S\&P 500 sto
     \toprule
     {Variable} & {n} & {mean} & {sd} & {q05} & {median} & {q95} \\
     \midrule
-    Return & 520299 & 0.0004 & 0.0213 & -0.0282 & 0.00087 & 0.0264  \\
-    News  &  21380 & 0.00004 & 0.0239 & -0.0305 & -0.003973 & 0.0444 \\
+    Return & 484 & 0.0004 & 0.0213 & -0.0282 & 0.00087 & 0.0264  \\
+    News  &  20 & 0.00004 & 0.0239 & -0.0305 & -0.003973 & 0.0444 \\
     \bottomrule
   \end{tabular}%
   }
@@ -125,7 +126,14 @@ We employ 10-fold cross-validation to choose the penalty parameter $\lambda$ at 
 \section{Results}
 \label{sec:results}
 
-Figure~\ref{fig:var_selec} plots the penalization parameter of each one-day ahead forecast against the number of variables selected by the LASSO. As expected, the number of predictors kept non-zero monotonically decreases in the size of $\lambda$.
+Figure~\ref{fig:var_selec} plots the penalization parameter $\lambda$ for each one-day-ahead 
+forecast against the number of variables selected by the LASSO. As expected, the number of 
+non-zero predictors decreases monotonically as $\lambda$ increases. 
+
+Figure~\ref{fig:lambda_avg} reports the average daily value of $\lambda$. The penalty parameter 
+varies substantially over time and tends to be higher during periods of elevated market volatility. 
+This likely reflects the fact that, in such periods, the LASSO can exploit greater cross-sectional 
+variation in returns and news topic attention.
 
 \begin{figure}[h!] % h! means "place here, if possible"
     \centering
@@ -134,41 +142,81 @@ Figure~\ref{fig:var_selec} plots the penalization parameter of each one-day ahea
     \label{fig:var_selec} % Label for referencing
 \end{figure}
 
-Next, we compare the out-of-sample performance of the LASSO forecasts with a simple benchmark that always predicts the in-sample mean. Figure~\ref{fig:r2_oos_lasso} shows that, on average, the LASSO forecasts underperform this historical mean benchmark.
-
 \begin{figure}[h!] % h! means "place here, if possible"
     \centering
-    \includegraphics[width=0.45\textwidth]{r2_oss.png} 
-    \caption{Out-of-sample $R^2$ of LASSO forecasts relative to the mean benchmark.}
-    \label{fig:r2_oos_lasso} % Label for referencing
+    \includegraphics[width=0.45\textwidth]{p_daily_lambda.png} 
+    \caption{Average Daily Penalty Parameter $\lambda$.}
+    \label{fig:lambda_avg} % Label for referencing
 \end{figure}
 
-In line with \cite{chinco2019sparse}, we continue by exploring whether augmenting a standard benchmark model with the predictors selected by the LASSO improves out-of-sample fit. We construct an AR(3) benchmark forecast for each stock and then expand it by including the LASSO-selected variables. If this combined model delivers a statistically significant increase in $R^2_{oos}$, we interpret it as evidence that the LASSO is capturing information not already contained in the benchmark model.
+Next, we assess the degree to which the LASSO forecasts capture the daily cross-sectional variation in individual stock returns. Following \cite{chinco2019sparse}, we estimate the stock-level regression model:  
 
-\begin{figure}[h!] % h! means "place here, if possible"
+\begin{align}
+r_{i,t} &= \alpha_i + \beta_i z_{i,t} + \varepsilon_{i,t}, \label{eq:r2_reg} \\
+z_{i,t} &= \frac{f_{i,t} - \mu_i}{\sigma_i}, \label{eq:standardization}
+\end{align}
+
+where \( r_{i,t} \) denotes the realized return of stock \( i \) on day \( t \), and \( f_{i,t} \) is the corresponding one-day-ahead forecast. Each forecast is standardized by subtracting its in-sample mean (\(\mu_i\)) and dividing by its in-sample standard deviation (\(\sigma_i\)). This normalization ensures that regression coefficients are directly comparable across stocks and forecasting models.  
+
+Figures~\ref{fig:r2_oos_lasso} and \ref{fig:r2_oos_benchmark} present the \(R^2\) values from equation~\eqref{eq:r2_reg}, using \(z_{i,t}\) constructed from the LASSO forecasts and, for comparison, from an autoregressive AR(3) benchmark estimated with the same rolling window procedure. On average, the LASSO forecasts explain 1.9\% of the daily variation in returns, outperforming the AR(3) benchmark, which accounts for only 0.8\%.  
+
+\begin{figure}[h!]  
     \centering
-    \includegraphics[width=0.45\textwidth]{r2_oss_ar3.png} 
-    \caption{Out-of-sample $R^2$ of the AR(3) benchmark model.}
-    \label{fig:r2_oos_benchmark} % Label for referencing
+    \includegraphics[width=0.45\textwidth]{lasso_r2_plot.png} 
+    \caption{\(R^2\) values from regressions using LASSO forecasts.}
+    \label{fig:r2_oos_lasso}  
 \end{figure}
 
-% \begin{figure}[h!] % h! means "place here, if possible"
-%     \centering
-%     \includegraphics[width=0.45\textwidth]{} 
-%     \caption{Out-of-sample $R^2$ of the AR(3) benchmark augmented with LASSO predictors.}
-%     \label{fig:r2_oos_benchmar_lasso} % Label for referencing
-% \end{figure}
+\begin{figure}[h!]  
+    \centering
+    \includegraphics[width=0.45\textwidth]{ar3_r2_plot.png} 
+    \caption{\(R^2\) values from regressions using AR(3) benchmark forecasts.}
+    \label{fig:r2_oos_benchmark}  
+\end{figure}
 
-Figure~\ref{fig:r2_oos_benchmark} shows that the benchmark model alone achieves, on average, a much lower $R^2_{oos}$ than the LASSO specification. When the benchmark is augmented with the variables selected by LASSO, $R^2_{oos}$ rises significantly. This indicates that our variable selection method captures information from the cross-section of stock returns and news attention that the AR(3) benchmark does not.
-
-Finally, we analyze the time-series properties of the predictors selected by LASSO. Figure~\ref{persistence} shows the daily share of selected predictors that exhibit persistence. Persistence is assessed by estimating an AR(1) model for each selected predictor, using the same 30-day rolling window applied in the LASSO estimation. A predictor is classified as persistent if its autoregressive coefficient is statistically significant at the 5\% level. On average, about 8\% of predictors on a given day are persistent. This share varies considerably over time and tends to increase during periods of elevated market volatility (e.g., the COVID-19 crash).
+We next investigate the extent to which the information content of the LASSO and AR(3) forecasts overlaps. To this end, we re-estimate equation~\eqref{eq:r2_reg} including both predictors simultaneously. The results in Figure~\ref{fig:r2_oos_benchmar_lasso} show that the joint specification explains, on average, 2.8\% of the daily variation in returns. Figure~\ref{fig:r2_oos_benchmar_lasso_delta} reports the incremental change in \(R^2\) at the stock level.  
 
 \begin{figure}[h!] % h! means "place here, if possible"
     \centering
-    \includegraphics[width=0.45\textwidth]{dately_share_plot.png} 
-    \caption{Daily share of LASSO-selected predictors classified as persistent.}
+    \includegraphics[width=0.45\textwidth]{combined_r2_plot.png} 
+    \caption{\(R^2\) values from regressions using both LASSO and AR(3) forecasts.}
+    \label{fig:r2_oos_benchmar_lasso} % Label for referencing
+\end{figure}
+
+\begin{figure}[h!] % h! means "place here, if possible"
+    \centering
+    \includegraphics[width=0.45\textwidth]{delta_combined_ar3_r2_plot.png} 
+    \caption{Change in $R^2$ from AR(3) only to AR(3) + LASSO.}
+    \label{fig:r2_oos_benchmar_lasso_delta} % Label for referencing
+\end{figure}
+
+
+We next examine the time-series properties of the predictors selected by the LASSO. 
+Figure~\ref{fig:persistence} plots the daily fraction of selected predictors that exhibit persistence. 
+Persistence is assessed by estimating an AR(1) model for each selected predictor, using the same 
+30-day rolling window employed in forecast construction: 
+\begin{align}
+r_{i,t} &= \alpha_i + \rho_i r_{i,t-1} + u_{i,t}, 
+\label{eq:ar1_1}
+\end{align}
+where $r_{i,t}$ denotes the return of stock $i$ on day $t$, $\rho_i$ is the autoregressive 
+coefficient, and $u_{i,t}$ is an error term. A predictor is classified as persistent if $\rho_i$ 
+is statistically significant at the 5\% level. An identical specification is estimated for the 
+news-based predictors, replacing returns with innovations in daily topic attention. 
+The daily persistence share is defined as the ratio of predictors with significant $\rho_i$ to 
+the total number of predictors selected across all forecasts on that day. Because predictors 
+may be included in multiple forecasts, the same variable can contribute more than once to the 
+daily share. 
+On average, 7.2\% of predictors on a given day are persistent. This fraction fluctuates 
+substantially over time and tends to increase during periods of heightened market volatility, 
+such as the COVID-19 crash.
+\begin{figure}[h!] % h! means "place here, if possible"
+    \centering
+    \includegraphics[width=0.45\textwidth]{daily_persistence_plot.png} 
+    \caption{Daily share of Predictors selected by LASSO that are persistent.}
     \label{fig:persistence} % Label for referencing
 \end{figure}
+
 \printbibliography
 
 
