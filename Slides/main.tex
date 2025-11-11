@@ -1,0 +1,214 @@
+\documentclass{beamer}
+\usepackage{ctex, hyperref}
+\usepackage[T1]{fontenc}
+
+% other packages
+\usepackage{latexsym,amsmath,xcolor,multicol,booktabs,calligra}
+\usepackage{graphicx,pstricks,listings,stackengine}
+
+\author{Tommaso Di Francesco, Jonathan Seim}
+\title{Sparsity, Learning, and Endogenous Predictability in Asset Markets}
+\subtitle{}
+\institute{}
+\date{}
+\usepackage{customtheme_clean}
+
+% defs
+\def\cmd#1{\texttt{\color{red}\footnotesize $\backslash$#1}}
+\def\env#1{\texttt{\color{blue}\footnotesize #1}}
+\definecolor{deepblue}{rgb}{0,0,0.5}
+\definecolor{deepred}{rgb}{0.6,0,0}
+\definecolor{deepgreen}{rgb}{0,0.5,0}
+\definecolor{halfgray}{gray}{0.55}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\bfseries\color{deepblue},
+    emphstyle=\ttfamily\color{deepred},    % Custom highlighting style
+    stringstyle=\color{deepgreen},
+    numbers=left,
+    numberstyle=\small\color{halfgray},
+    rulesepcolor=\color{red!20!green!20!blue!20},
+    frame=shadowbox,
+}
+
+
+\begin{document}
+\setbeamertemplate{caption}{\raggedright\insertcaption\par}
+% \setmainfont{Times New Roman}
+\begin{frame}
+    \titlepage
+\end{frame}
+
+
+
+
+\section{Introduction}
+
+\begin{frame}{Information availability grows exponentially}
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.8\textwidth]{Datasphere.png}
+    \end{figure}
+\end{frame}
+
+\section{Model Setup}
+
+\begin{frame}{Baseline Framework}
+\begin{itemize}
+    \item Standard \textbf{Lucas (1978)} economy with a continuum of risk–neutral agents.
+    \item One risky asset paying stochastic dividends \( D_t \).
+    \item Dividends and consumption follow log–normal growth:
+    \[
+    \frac{D_t}{D_{t-1}} = a \varepsilon^d_t, 
+    \quad
+    \frac{C_t}{C_{t-1}} = a \varepsilon^c_t.
+    \]
+    \item Shocks:
+    \[
+    \begin{pmatrix}\log \varepsilon^d_t \\ \log \varepsilon^c_t \end{pmatrix}
+    \sim \mathcal{N}\left(
+    \begin{pmatrix} -s_d^2/2 \\ -s_c^2/2 \end{pmatrix},
+    \begin{pmatrix} s_d^2 & \rho s_d s_c \\ \rho s_d s_c & s_c^2 \end{pmatrix}
+    \right).
+    \]
+    \item Expected dividend growth: \( \mathbb{E}_t D_{t+1} = a D_t. \)
+\end{itemize}
+\end{frame}
+%==================================================
+\begin{frame}{Equilibrium Pricing under RE}
+\begin{itemize}
+    \item No–arbitrage condition:
+    \[
+    P_t = \delta \mathbb{E}_t \Big[\Big(\frac{C_{t+1}}{C_t}\Big)^{-\gamma}(P_{t+1}+D_{t+1}) \Big].
+    \]
+    \item Under rational expectations:
+    \[
+    P_t = \frac{\delta a^{1-\gamma}\rho_e}{1 - a^{1-\gamma}\rho_e} D_t,
+    \quad
+    \rho_e = e^{\gamma(1+\gamma)s_c^2/2 - \gamma\rho s_c s_d}.
+    \]
+    \item Price–dividend ratio constant.
+    \item Gross return:
+    \[
+    R_{t+1} = \frac{P_{t+1}}{P_t} = a \varepsilon^d_{t+1}.
+    \]
+    \item Log–return: \( r_{t+1} = \log a + \log \varepsilon^d_{t+1} \).
+\end{itemize}
+\end{frame}
+%==================================================
+
+\begin{frame}{Adaptive Learning Setup}
+\begin{itemize}
+    \item Agents are \textbf{boundedly rational}: they estimate expected returns via econometrics.
+    \item Perceived Law of Motion (PLM):
+    \[
+    r_{t+1} = x_t \beta + u_t, \quad x_t \sim \mathcal{N}(0, \sigma_x^2).
+    \]
+    \item Gross expected return:
+    \[
+    \mathbb{E}_t(R_{t+1}) = \phi e^{x_t \beta}, \quad \phi = e^{\sigma_u^2 / 2}.
+    \]
+    \item Plug into pricing equation:
+    \[
+    P_t = \frac{\delta a^{1-\gamma}\rho_e}{1 - \delta a^{-\gamma}\phi e^{x_t \beta}} D_t,
+    \quad
+    \kappa = \delta a^{-\gamma}\phi.
+    \]
+\end{itemize}
+\end{frame}
+%==================================================
+
+\begin{frame}{Actual Law of Motion (ALM)}
+\begin{itemize}
+    \item From price dynamics:
+    \[
+    R_t = \frac{1 - \kappa e^{x_{t-1}\beta}}{1 - \kappa e^{x_t \beta}}\frac{D_t}{D_{t-1}}.
+    \]
+    \item Log form:
+    \[
+    r_{t+1} = \log \varepsilon_{t+1}
+               + \log(1 - \kappa e^{x_t \beta})
+               - \log(1 - \kappa e^{x_{t+1} \beta}).
+    \]
+    \item Nonlinear mapping between beliefs and realized returns $\Rightarrow$ PLM is misspecified.
+    \item Agents update $\beta$ recursively $\Rightarrow$ stochastic recursive system.
+\end{itemize}
+\end{frame}
+%==================================================
+
+\begin{frame}{5. Cross-Moment Consistent Equilibrium}
+\begin{itemize}
+    \item Equilibrium condition:
+    \[
+    T(\beta) - \beta = 0, \quad
+    T(\beta) = \frac{\text{Cov}(r_{t+1}, x_t)}{\text{Var}(x_t)}.
+    \]
+    \item Approximation (Taylor around $x_t=0$):
+    \[
+    \log(1 - \kappa e^{x_t\beta}) \approx 
+    \log(1-\kappa) - \frac{\kappa}{1-\kappa}x_t\beta + \frac{\kappa}{2(1-\kappa)^2}(x_t\beta)^2.
+    \]
+    \item Then:
+    \[
+    T(\beta) \approx -\frac{\kappa}{1-\kappa}\beta
+    \quad \Rightarrow \quad
+    \beta^* = 0.
+    \]
+    \item Stable if \( \kappa < 1 \).
+\end{itemize}
+\end{frame}
+%==================================================
+
+\begin{frame}{Learning Algorithms}
+\textbf{Recursive Least Squares (RLS):}
+\[
+\beta_t = \beta_{t-1} + t^{-1} S^{-1}_{t-1} x_{t-2}(r_{t-1}-x_{t-2}\beta_{t-1}),
+\quad
+S_t = S_{t-1} + t^{-1}(x_{t-2}^2 - S_{t-1}).
+\]
+\begin{itemize}
+    \item Fits canonical stochastic recursive algorithm form.
+    \item Stability $\Leftrightarrow$ ODE 
+    \( \frac{d\beta}{d\tau} = T(\beta)-\beta \).
+\end{itemize}
+\vspace{0.5em}
+\textbf{Constant-Gain (WLS):}
+\[
+b_t = b_{t-1} + \gamma M_t^{-1}x_t(y_t - x_t b_{t-1}),
+\]
+\begin{itemize}
+    \item Gain $\gamma \in (0,1)$ constant $\Rightarrow$ perpetual fluctuations.
+    \item Stationary distribution:
+    \[
+    \beta_t \sim \mathcal{N}\left(0,\, \gamma s_d^2 [2\sigma_x^2(1+\tfrac{\kappa}{1-\kappa})]^{-1}\right).
+    \]
+\end{itemize}
+\end{frame}
+%==================================================
+
+\begin{frame}
+    \frametitle{LASSO Learning and Implications}
+   \begin{itemize}
+    \item Agents use LASSO estimator:
+    \[
+    {\beta}_{LASSO}
+    = \text{sign}(\beta_{OLS})\max(0,|\beta_{OLS}| - \lambda).
+    \]
+
+    \item Mapping: \( \beta_{OLS} = -\frac{\kappa}{1-\kappa}\beta_{LASSO}. \)
+    \item Only $\beta^*=0$ stable for $\kappa<1$.
+    item Probability of nonzero estimate:
+    \[
+    \mathbb{P}(|\beta_{OLS}|>\lambda)
+    = 1 - [\Phi(\lambda/\sigma_{OLS}) - \Phi(-\lambda/\sigma_{OLS})].
+    \]
+    
+\end{itemize}
+
+\end{frame}
+
+
+
+
+\end{document}

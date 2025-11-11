@@ -1,0 +1,17 @@
+Abundance of information and misinformation in the current world
+Financial markets are populated by ever attentive investors
+delegation to algorithmic trading to exploit potential short-lived and spare regressors
+
+
+
+
+
+
+
+
+study a financial market which is efficient in the sens tat all information about the fundamentals (dividend)
+is priced inIn rational setting returns are unpredictable
+agents however test this, buby running regression fo returns on a pletora of possible predictors, with statistic techniques like Lasso
+
+If they do not have infinity memory in the sens that they use all available data, but instead use some for of weighted least square, then 
+their learning causes their estimate to fluctuate around 0 
