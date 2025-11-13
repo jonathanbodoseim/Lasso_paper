@@ -77,15 +77,29 @@ def lasso_rolling_window(X: np.ndarray,
                          cv_folds: int = 5,
                          alphas: Optional[np.ndarray] = None,
                          include_contemporaneous: bool = False,
-                         verbose: bool = True) -> Dict[str, Any]:
+                         verbose: bool = True,
+                         # NEW:
+                         lambda_mode: str = "cv",           # "cv" or "fixed"
+                         fixed_lambda: Optional[float] = None) -> Dict[str, Any]:
+    """
+    Rolling-window LASSO with option to choose lambda via cross-validation or a fixed value.
 
+    Parameters
+    ----------
+    lambda_mode : {"cv", "fixed"}
+        If "cv", choose lambda (alpha) via cross-validation (LassoCV).
+        If "fixed", use the value in `fixed_lambda` with sklearn's Lasso.
+    fixed_lambda : float, optional
+        Required when lambda_mode="fixed". The fixed alpha (lambda) to use.
+
+    Other parameters are as in the original.
+    """
     import numpy as np
     import pandas as pd
-    from sklearn.linear_model import LassoCV
+    from sklearn.linear_model import LassoCV, Lasso
     from sklearn.preprocessing import StandardScaler
     import warnings
-    from tqdm import tqdm  
-
+    from tqdm import tqdm
 
     # --- detect if pandas object and extract index
     if isinstance(y, (pd.Series, pd.DataFrame)):
@@ -115,15 +129,25 @@ def lasso_rolling_window(X: np.ndarray,
     if len(y_aligned) < burn_in:
         raise ValueError("Not enough data for specified window size and lags.")
 
+    if lambda_mode not in {"cv", "fixed"}:
+        raise ValueError("lambda_mode must be 'cv' or 'fixed'.")
+
+    if lambda_mode == "fixed" and (fixed_lambda is None or fixed_lambda <= 0):
+        raise ValueError("When lambda_mode='fixed', you must provide a positive fixed_lambda.")
+
     lambdas, coefficients, window_starts, window_ends = [], [], [], []
     predictions, intercepts = [], []
 
-    # --- NEW: date containers
+    # date containers
     window_start_dates, window_end_dates, prediction_dates = [], [], []
 
     n_windows = len(y_aligned) - window_size + 1
     if verbose:
         print(f"Running {n_windows} rolling windows of size {window_size}...")
+        if lambda_mode == "cv":
+            print("Lambda selection: cross-validation (LassoCV).")
+        else:
+            print(f"Lambda selection: fixed (alpha = {fixed_lambda}).")
 
     for i in tqdm(range(burn_in - window_size, n_windows), desc="Rolling windows"):
         start_idx = max(0, i)
@@ -133,7 +157,6 @@ def lasso_rolling_window(X: np.ndarray,
         y_window = y_aligned[start_idx:end_idx]
 
         if standardize:
-            from sklearn.preprocessing import StandardScaler
             scaler = StandardScaler()
             X_window_scaled = scaler.fit_transform(X_window)
         else:
@@ -144,36 +167,49 @@ def lasso_rolling_window(X: np.ndarray,
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
 
-                lasso_cv = LassoCV(cv=min(cv_folds, window_size // 2),
-                                   max_iter=2000,
-                                   n_alphas=100,
-                                   fit_intercept=True)
-                lasso_cv.fit(X_window_scaled, y_window)
-
-                lambdas.append(lasso_cv.alpha_)
-                intercepts.append(lasso_cv.intercept_)
-
-                if standardize:
-                    coef_original = lasso_cv.coef_ / scaler.scale_
+                if lambda_mode == "cv":
+                    # If user passed an alphas grid, use it; otherwise LassoCV picks its own
+                    lasso_est = LassoCV(cv=min(cv_folds, max(2, window_size // 2)),
+                                        max_iter=2000,
+                                        n_alphas=None if alphas is not None else 100,
+                                        alphas=alphas,
+                                        fit_intercept=True,
+                                        random_state=0)
+                    lasso_est.fit(X_window_scaled, y_window)
+                    chosen_alpha = float(lasso_est.alpha_)
                 else:
-                    coef_original = lasso_cv.coef_
+                    # Fixed lambda path
+                    lasso_est = Lasso(alpha=float(fixed_lambda),
+                                      max_iter=2000,
+                                      fit_intercept=True,
+                                      random_state=0)
+                    lasso_est.fit(X_window_scaled, y_window)
+                    chosen_alpha = float(fixed_lambda)
+
+                lambdas.append(chosen_alpha)
+                intercepts.append(lasso_est.intercept_)
+
+                # Map coefs back to original X scale if standardized
+                if standardize:
+                    coef_original = lasso_est.coef_ / scaler.scale_
+                else:
+                    coef_original = lasso_est.coef_
+
                 coefficients.append(coef_original)
 
                 window_starts.append(start_idx + n_lags)
                 window_ends.append(end_idx + n_lags)
 
-                # --- NEW: store corresponding dates if available
                 if date_index is not None:
                     window_start_dates.append(date_index[start_idx])
                     window_end_dates.append(date_index[end_idx - 1])
 
-                # OOS prediction
+                # OOS prediction for next point (if available)
                 if end_idx < len(y_aligned):
                     X_next = X_lagged[end_idx:end_idx + 1]
                     X_next_scaled = scaler.transform(X_next) if standardize else X_next
-                    pred = lasso_cv.predict(X_next_scaled)
+                    pred = lasso_est.predict(X_next_scaled)
                     predictions.append(pred[0])
-
                     if date_index is not None:
                         prediction_dates.append(date_index[end_idx])
 
@@ -197,7 +233,6 @@ def lasso_rolling_window(X: np.ndarray,
         print("Rolling LASSO complete!")
         print(f"Average lambda: {np.nanmean(lambdas):.6f}")
 
-    # --- include date tracking in results
     results = {
         'lambdas': np.array(lambdas),
         'coefficients': np.array(coefficients),
@@ -208,6 +243,8 @@ def lasso_rolling_window(X: np.ndarray,
         'predictions': np.array(predictions),
         'n_lags': n_lags,
         'window_size': window_size,
+        # NEW:
+        'lambda_mode': lambda_mode
     }
 
     if date_index is not None:
@@ -218,20 +255,6 @@ def lasso_rolling_window(X: np.ndarray,
         })
 
     return results
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
