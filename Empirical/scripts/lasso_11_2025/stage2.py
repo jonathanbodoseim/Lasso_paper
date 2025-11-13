@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.optimize import minimize
+from scipy.optimize import curve_fit
 
 def estimate_kappa(stage2):
     """
@@ -8,7 +9,6 @@ def estimate_kappa(stage2):
     """
 
     r = stage2['vwretd'].values[1:]
-    eps = np.maximum(stage2['epsilon'].values[1:], 1e-8)  # ensure positive for log
     pred_t = stage2['predictions'].values[:-1]
     pred_t1 = stage2['predictions'].values[1:]
 
@@ -16,7 +16,7 @@ def estimate_kappa(stage2):
         kappa = float(kappa)
         if np.any(1 - kappa * np.exp(pred_t) <= 0) or np.any(1 - kappa * np.exp(pred_t1) <= 0):
             return 1e10
-        r_hat = np.log(eps) + np.log(1 - kappa * np.exp(pred_t)) - np.log(1 - kappa * np.exp(pred_t1))
+        r_hat = np.log(1 - kappa * np.exp(pred_t)) - np.log(1 - kappa * np.exp(pred_t1))
         val = np.sum((r - r_hat) ** 2)
         return np.inf if not np.isfinite(val) else val
 
@@ -35,3 +35,32 @@ def estimate_kappa(stage2):
             best_val, best_kappa = res.fun, res.x[0]
 
     return best_kappa
+
+
+def estimate_kappa_curve_fit(stage2):
+    """
+    Alternative method to estimate kappa using curve fitting.
+    """
+
+
+    r = stage2['vwretd'].values[1:]
+    pred_t = stage2['predictions'].values[:-1]
+    pred_t1 = stage2['predictions'].values[1:]
+
+    def alm_model(x, kappa, intercept):
+        pred_t, pred_t1 = x
+        return np.log(1 - kappa * np.exp(pred_t)) - np.log(1 - kappa * np.exp(pred_t1)) + intercept
+
+
+
+    # Initial guess and bounds
+    initial_kappa = 0.8
+    initial_intercept = 0.0
+    bounds = ([0, -1], [1, 1])  # first bracket is for the lower bounds, second for the upper bounds
+
+    try:
+        popt, pcov = curve_fit(alm_model, (pred_t, pred_t1), r,
+                            p0=[initial_kappa, initial_intercept], bounds=bounds)
+        return popt, pcov
+    except Exception as e:
+        raise RuntimeError("Curve fitting failed: " + str(e))

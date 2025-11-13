@@ -7,10 +7,11 @@ This module implements rolling window LASSO regression for time series analysis.
 
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LassoCV
+from sklearn.linear_model import LassoCV, Lasso
 from sklearn.preprocessing import StandardScaler
 import warnings
 from typing import Tuple, Optional, Dict, Any, List
+from tqdm import tqdm
 
 
 def create_lagged_features(X: np.ndarray, 
@@ -59,7 +60,7 @@ def create_lagged_features(X: np.ndarray,
         else:
             # Lagged values: shift data forward by 'lag' periods
             # X[n_lags-lag:-lag] gives us the lagged values aligned with y[n_lags:]
-            lagged_features.append(X[n_lags-lag:-lag if lag > 0 else None])
+            lagged_features.append(X[n_lags-lag:-lag])
             feature_names.extend([f'feature_{i}_lag_{lag}' for i in range(n_features)])
     
     # Stack all lagged features horizontally
@@ -94,12 +95,6 @@ def lasso_rolling_window(X: np.ndarray,
 
     Other parameters are as in the original.
     """
-    import numpy as np
-    import pandas as pd
-    from sklearn.linear_model import LassoCV, Lasso
-    from sklearn.preprocessing import StandardScaler
-    import warnings
-    from tqdm import tqdm
 
     # --- detect if pandas object and extract index
     if isinstance(y, (pd.Series, pd.DataFrame)):
@@ -109,6 +104,11 @@ def lasso_rolling_window(X: np.ndarray,
 
     # Ensure numpy arrays for computation
     y = np.asarray(y).flatten()
+
+    #center returns (y) to have mean zero, ignoring nans
+    mean_y = np.nanmean(y)
+    y = y - mean_y
+
     X = np.asarray(X)
 
     n_samples, n_features = X.shape
@@ -117,7 +117,11 @@ def lasso_rolling_window(X: np.ndarray,
         print(f"Creating lagged features with {n_lags} lags...")
 
     X_lagged, feature_names = create_lagged_features(X, n_lags, include_contemporaneous)
-    y_aligned = y[n_lags:]
+    y_aligned = y[n_lags:] #just remove first n_lags observations to align with X_lagged
+    
+    #check that X_lagged and y_aligned have compatible shapes
+    if X_lagged.shape[0] != y_aligned.shape[0]:
+        raise ValueError("Mismatch in number of observations between lagged X and aligned y.")
 
     # Align date index (if available)
     if date_index is not None:
@@ -135,7 +139,7 @@ def lasso_rolling_window(X: np.ndarray,
     if lambda_mode == "fixed" and (fixed_lambda is None or fixed_lambda <= 0):
         raise ValueError("When lambda_mode='fixed', you must provide a positive fixed_lambda.")
 
-    lambdas, coefficients, window_starts, window_ends = [], [], [], []
+    lambdas, coefficients, window_starts, window_ends, insample_r_squareds = [], [], [], [], []
     predictions, intercepts = [], []
 
     # date containers
@@ -155,6 +159,7 @@ def lasso_rolling_window(X: np.ndarray,
 
         X_window = X_lagged[start_idx:end_idx]
         y_window = y_aligned[start_idx:end_idx]
+      
 
         if standardize:
             scaler = StandardScaler()
@@ -162,7 +167,7 @@ def lasso_rolling_window(X: np.ndarray,
         else:
             scaler = None
             X_window_scaled = X_window
-
+        
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -173,21 +178,27 @@ def lasso_rolling_window(X: np.ndarray,
                                         max_iter=2000,
                                         n_alphas=None if alphas is not None else 100,
                                         alphas=alphas,
-                                        fit_intercept=True,
+                                        fit_intercept=False,
                                         random_state=0)
+                    
                     lasso_est.fit(X_window_scaled, y_window)
+                    insample_r_squared = lasso_est.score(X_window_scaled, y_window)
                     chosen_alpha = float(lasso_est.alpha_)
                 else:
                     # Fixed lambda path
                     lasso_est = Lasso(alpha=float(fixed_lambda),
                                       max_iter=2000,
-                                      fit_intercept=True,
+                                      fit_intercept=False,
                                       random_state=0)
+                   
                     lasso_est.fit(X_window_scaled, y_window)
+                    #compute in sample r-squared
+                    insample_r_squared = lasso_est.score(X_window_scaled, y_window)
                     chosen_alpha = float(fixed_lambda)
 
                 lambdas.append(chosen_alpha)
                 intercepts.append(lasso_est.intercept_)
+                insample_r_squareds.append(insample_r_squared)
 
                 # Map coefs back to original X scale if standardized
                 if standardize:
@@ -237,10 +248,11 @@ def lasso_rolling_window(X: np.ndarray,
         'lambdas': np.array(lambdas),
         'coefficients': np.array(coefficients),
         'intercepts': np.array(intercepts),
+        'insample_r_squareds': np.array(insample_r_squareds),
         'window_starts': np.array(window_starts),
         'window_ends': np.array(window_ends),
         'feature_names': feature_names,
-        'predictions': np.array(predictions),
+        'predictions': np.array(predictions + mean_y),  # add back mean to predictions
         'n_lags': n_lags,
         'window_size': window_size,
         # NEW:
