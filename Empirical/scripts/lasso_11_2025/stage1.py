@@ -1,8 +1,5 @@
 """
-Lasso Rolling Window Implementation
-====================================
-
-This module implements rolling window LASSO regression for time series analysis.
+Simplified Lasso Rolling Window Implementation
 """
 
 import numpy as np
@@ -14,59 +11,16 @@ from typing import Tuple, Optional, Dict, Any, List
 from tqdm import tqdm
 
 
-def create_lagged_features(X: np.ndarray, 
-                          n_lags: int = 3,
-                          include_contemporaneous: bool = False) -> Tuple[np.ndarray, List[str]]:
-    """
-    Create lagged features from predictor matrix.
-    
-    Parameters
-    ----------
-    X : np.ndarray
-        Matrix of predictors with shape (n_samples, n_features)
-    n_lags : int
-        Number of lags to create for each predictor
-    include_contemporaneous : bool
-        Whether to include the contemporaneous (lag 0) values
-        
-    Returns
-    -------
-    tuple
-        (X_lagged, feature_names) where X_lagged is the matrix with lagged features
-        
-    Notes
-    -----
-    For a model y_t = x_{t-1} + x_{t-2} + x_{t-3}, we need lags 1, 2, and 3
-    of the predictors. The response y at time t is predicted using past values
-    of X only (no look-ahead bias).
-    """
+def create_lagged_features(X: np.ndarray, n_lags: int = 3) -> Tuple[np.ndarray, List[str]]:
+    """Create lagged features from predictor matrix."""
     n_samples, n_features = X.shape
     
-    # Determine which lags to use
-    if include_contemporaneous:
-        lag_range = range(0, n_lags + 1)
-    else:
-        lag_range = range(1, n_lags + 1)
+    lagged_features = [X[n_lags-lag:-lag] for lag in range(1, n_lags + 1)]
+    feature_names = [f'feature_{i}_lag_{lag}' 
+                     for lag in range(1, n_lags + 1) 
+                     for i in range(n_features)]
     
-    # Create lagged features
-    lagged_features = []
-    feature_names = []
-    
-    for lag in lag_range:
-        if lag == 0:
-            # Contemporaneous values (use with caution - risk of look-ahead bias)
-            lagged_features.append(X[n_lags:])
-            feature_names.extend([f'feature_{i}_lag_0' for i in range(n_features)])
-        else:
-            # Lagged values: shift data forward by 'lag' periods
-            # X[n_lags-lag:-lag] gives us the lagged values aligned with y[n_lags:]
-            lagged_features.append(X[n_lags-lag:-lag])
-            feature_names.extend([f'feature_{i}_lag_{lag}' for i in range(n_features)])
-    
-    # Stack all lagged features horizontally
-    X_lagged = np.hstack(lagged_features)
-    
-    return X_lagged, feature_names
+    return np.hstack(lagged_features), feature_names
 
 
 def lasso_rolling_window(X: np.ndarray,
@@ -77,90 +31,73 @@ def lasso_rolling_window(X: np.ndarray,
                          standardize: bool = True,
                          cv_folds: int = 5,
                          alphas: Optional[np.ndarray] = None,
-                         include_contemporaneous: bool = False,
                          verbose: bool = True,
-                         # NEW:
-                         lambda_mode: str = "cv",           # "cv" or "fixed"
+                         lambda_mode: str = "cv",
                          fixed_lambda: Optional[float] = None) -> Dict[str, Any]:
-    """
-    Rolling-window LASSO with option to choose lambda via cross-validation or a fixed value.
+    
 
-    Parameters
-    ----------
-    lambda_mode : {"cv", "fixed"}
-        If "cv", choose lambda (alpha) via cross-validation (LassoCV).
-        If "fixed", use the value in `fixed_lambda` with sklearn's Lasso.
-    fixed_lambda : float, optional
-        Required when lambda_mode="fixed". The fixed alpha (lambda) to use.
-
-    Other parameters are as in the original.
-    """
-
-    # --- detect if pandas object and extract index
-    if isinstance(y, (pd.Series, pd.DataFrame)):
-        date_index = y.index
-    else:
-        date_index = None
-
-    # Ensure numpy arrays for computation
+    # Extract date index if pandas object
+    date_index = y.index if isinstance(y, (pd.Series, pd.DataFrame)) else None
     y = np.asarray(y).flatten()
+    X = np.asarray(X)
+    
 
-    #center returns (y) to have mean zero, ignoring nans
+    # Center returns
     mean_y = np.nanmean(y)
     y = y - mean_y
+    
 
-    X = np.asarray(X)
-
-    n_samples, n_features = X.shape
-
+    # Create lagged features
     if verbose:
         print(f"Creating lagged features with {n_lags} lags...")
-
-    X_lagged, feature_names = create_lagged_features(X, n_lags, include_contemporaneous)
-    y_aligned = y[n_lags:] #just remove first n_lags observations to align with X_lagged
     
-    #check that X_lagged and y_aligned have compatible shapes
-    if X_lagged.shape[0] != y_aligned.shape[0]:
-        raise ValueError("Mismatch in number of observations between lagged X and aligned y.")
-
-    # Align date index (if available)
+    X_lagged, feature_names = create_lagged_features(X, n_lags)
+    y_aligned = y[n_lags:]
+    
     if date_index is not None:
         date_index = date_index[n_lags:]
+    
 
-    if burn_in is None:
-        burn_in = window_size
-
+    # Safety Checks
+    if X_lagged.shape[0] != y_aligned.shape[0]:
+        raise ValueError("Mismatch between lagged X and aligned y observations.")
+    
+    burn_in = burn_in or window_size
     if len(y_aligned) < burn_in:
-        raise ValueError("Not enough data for specified window size and lags.")
-
+        raise ValueError("Insufficient data for window size and lags.")
+    
     if lambda_mode not in {"cv", "fixed"}:
         raise ValueError("lambda_mode must be 'cv' or 'fixed'.")
-
+    
     if lambda_mode == "fixed" and (fixed_lambda is None or fixed_lambda <= 0):
-        raise ValueError("When lambda_mode='fixed', you must provide a positive fixed_lambda.")
+        raise ValueError("lambda_mode='fixed' requires positive fixed_lambda.")
+    
 
-    lambdas, coefficients, window_starts, window_ends, insample_r_squareds = [], [], [], [], []
-    predictions, intercepts = [], []
+    # Initialize storage for results
+    results_data = {
+        'lambdas': [], 'coefficients': [], 'intercepts': [], 'insample_r_squareds': [],
+        'window_starts': [], 'window_ends': [], 'predictions': []
+    }
+    
+    if date_index is not None:
+        results_data.update({
+            'window_start_dates': [], 'window_end_dates': [], 'prediction_dates': []
+        })
+    
 
-    # date containers
-    window_start_dates, window_end_dates, prediction_dates = [], [], []
-
+    # Rolling window loop
     n_windows = len(y_aligned) - window_size + 1
     if verbose:
+        mode_str = f"cross-validation" if lambda_mode == "cv" else f"fixed (α={fixed_lambda})"
         print(f"Running {n_windows} rolling windows of size {window_size}...")
-        if lambda_mode == "cv":
-            print("Lambda selection: cross-validation (LassoCV).")
-        else:
-            print(f"Lambda selection: fixed (alpha = {fixed_lambda}).")
-
+        print(f"Lambda selection: {mode_str}")
+    
     for i in tqdm(range(burn_in - window_size, n_windows), desc="Rolling windows"):
-        start_idx = max(0, i)
-        end_idx = start_idx + window_size
-
+        start_idx, end_idx = max(0, i), max(0, i) + window_size
+        
         X_window = X_lagged[start_idx:end_idx]
         y_window = y_aligned[start_idx:end_idx]
-      
-
+        
         if standardize:
             scaler = StandardScaler()
             X_window_scaled = scaler.fit_transform(X_window)
@@ -171,170 +108,108 @@ def lasso_rolling_window(X: np.ndarray,
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-
+                
+                # Fit model
                 if lambda_mode == "cv":
-                    # If user passed an alphas grid, use it; otherwise LassoCV picks its own
-                    lasso_est = LassoCV(cv=min(cv_folds, max(2, window_size // 2)),
-                                        max_iter=2000,
-                                        n_alphas=None if alphas is not None else 100,
-                                        alphas=alphas,
-                                        fit_intercept=False,
-                                        random_state=0)
-                    
-                    lasso_est.fit(X_window_scaled, y_window)
-                    insample_r_squared = lasso_est.score(X_window_scaled, y_window)
-                    chosen_alpha = float(lasso_est.alpha_)
+                    model = LassoCV(
+                        cv=min(cv_folds, max(2, window_size // 2)),
+                        max_iter=2000,
+                        n_alphas=None if alphas is not None else 100,
+                        alphas=alphas,
+                        fit_intercept=False,
+                        random_state=42
+                    )
                 else:
-                    # Fixed lambda path
-                    lasso_est = Lasso(alpha=float(fixed_lambda),
-                                      max_iter=2000,
-                                      fit_intercept=False,
-                                      random_state=0)
-                   
-                    lasso_est.fit(X_window_scaled, y_window)
-                    #compute in sample r-squared
-                    insample_r_squared = lasso_est.score(X_window_scaled, y_window)
-                    chosen_alpha = float(fixed_lambda)
-
-                lambdas.append(chosen_alpha)
-                intercepts.append(lasso_est.intercept_)
-                insample_r_squareds.append(insample_r_squared)
-
-                # Map coefs back to original X scale if standardized
-                if standardize:
-                    coef_original = lasso_est.coef_ / scaler.scale_
-                else:
-                    coef_original = lasso_est.coef_
-
-                coefficients.append(coef_original)
-
-                window_starts.append(start_idx + n_lags)
-                window_ends.append(end_idx + n_lags)
-
+                    model = Lasso(
+                        alpha=float(fixed_lambda),
+                        max_iter=2000,
+                        fit_intercept=False,
+                        random_state=42
+                    )
+                
+                model.fit(X_window_scaled, y_window)
+                
+                # Store results
+                chosen_alpha = float(model.alpha_) if lambda_mode == "cv" else float(fixed_lambda)
+                results_data['lambdas'].append(chosen_alpha)
+                results_data['intercepts'].append(model.intercept_)
+                results_data['insample_r_squareds'].append(model.score(X_window_scaled, y_window))          # in-sample r2 for this windows fit; not for whole sample
+                
+                # Transform coefficients back to original scale
+                coef = model.coef_ / scaler.scale_ if standardize else model.coef_
+                results_data['coefficients'].append(coef)
+                
+                results_data['window_starts'].append(start_idx + n_lags)
+                results_data['window_ends'].append(end_idx + n_lags)
+                
                 if date_index is not None:
-                    window_start_dates.append(date_index[start_idx])
-                    window_end_dates.append(date_index[end_idx - 1])
-
-                # OOS prediction for next point (if available)
+                    results_data['window_start_dates'].append(date_index[start_idx])
+                    results_data['window_end_dates'].append(date_index[end_idx - 1])
+                
+                # Out-of-sample prediction
                 if end_idx < len(y_aligned):
                     X_next = X_lagged[end_idx:end_idx + 1]
                     X_next_scaled = scaler.transform(X_next) if standardize else X_next
-                    pred = lasso_est.predict(X_next_scaled)
-                    predictions.append(pred[0])
+                    pred = model.predict(X_next_scaled)[0]                                                  # predict window +1
+                    results_data['predictions'].append(pred)
+                    
                     if date_index is not None:
-                        prediction_dates.append(date_index[end_idx])
-
+                        results_data['prediction_dates'].append(date_index[end_idx])
+        
         except Exception as e:
             if verbose:
                 print(f"Warning: LASSO failed for window {i}: {e}")
-            lambdas.append(np.nan)
-            coefficients.append(np.full(X_lagged.shape[1], np.nan))
-            intercepts.append(np.nan)
-            window_starts.append(start_idx + n_lags)
-            window_ends.append(end_idx + n_lags)
+            
+            # Store NaNs on failure
+            results_data['lambdas'].append(np.nan)
+            results_data['coefficients'].append(np.full(X_lagged.shape[1], np.nan))
+            results_data['intercepts'].append(np.nan)
+            results_data['insample_r_squareds'].append(np.nan)
+            results_data['window_starts'].append(start_idx + n_lags)
+            results_data['window_ends'].append(end_idx + n_lags)
+            
             if date_index is not None:
-                window_start_dates.append(date_index[start_idx])
-                window_end_dates.append(date_index[min(end_idx - 1, len(date_index) - 1)])
+                results_data['window_start_dates'].append(date_index[start_idx])
+                results_data['window_end_dates'].append(date_index[min(end_idx - 1, len(date_index) - 1)])
+            
             if end_idx < len(y_aligned):
-                predictions.append(np.nan)
+                results_data['predictions'].append(np.nan)
                 if date_index is not None:
-                    prediction_dates.append(date_index[min(end_idx, len(date_index) - 1)])
-
+                    results_data['prediction_dates'].append(date_index[min(end_idx, len(date_index) - 1)])
+    
     if verbose:
         print("Rolling LASSO complete!")
-        print(f"Average lambda: {np.nanmean(lambdas):.6f}")
-
+        print(f"Average lambda: {np.nanmean(results_data['lambdas']):.6f}")
+    
+    # Compile final results
     results = {
-        'lambdas': np.array(lambdas),
-        'coefficients': np.array(coefficients),
-        'intercepts': np.array(intercepts),
-        'insample_r_squareds': np.array(insample_r_squareds),
-        'window_starts': np.array(window_starts),
-        'window_ends': np.array(window_ends),
+        'lambdas': np.array(results_data['lambdas']),
+        'coefficients': np.array(results_data['coefficients']),
+        'intercepts': np.array(results_data['intercepts']),
+        'insample_r_squareds': np.array(results_data['insample_r_squareds']),
+        'window_starts': np.array(results_data['window_starts']),
+        'window_ends': np.array(results_data['window_ends']),
         'feature_names': feature_names,
-        'predictions': np.array(predictions + mean_y),  # add back mean to predictions
+        'predictions': np.array(results_data['predictions']) + mean_y,
         'n_lags': n_lags,
         'window_size': window_size,
-        # NEW:
         'lambda_mode': lambda_mode
     }
-
+    
     if date_index is not None:
         results.update({
-            'window_start_dates': np.array(window_start_dates),
-            'window_end_dates': np.array(window_end_dates),
-            'prediction_dates': np.array(prediction_dates)
+            'window_start_dates': np.array(results_data['window_start_dates']),
+            'window_end_dates': np.array(results_data['window_end_dates']),
+            'prediction_dates': np.array(results_data['prediction_dates'])
         })
-
+    
     return results
 
-
-
-
-def analyze_results(results: Dict[str, Any], 
-                   feature_names: Optional[list] = None) -> pd.DataFrame:
-    """
-    Analyze and summarize the results from rolling LASSO.
-    
-    Parameters
-    ----------
-    results : dict
-        Output from lasso_rolling_window function
-        
-    feature_names : list, optional
-        Original feature names (before lagging)
-        
-    Returns
-    -------
-    pd.DataFrame
-        Summary statistics for each feature's coefficients
-    """
-    coefficients = results['coefficients']
-    lagged_feature_names = results['feature_names']
-    
-    # Create DataFrame with coefficient evolution
-    coef_df = pd.DataFrame(coefficients, columns=lagged_feature_names)
-    
-    # Calculate summary statistics
-    summary = pd.DataFrame({
-        'mean_coef': coef_df.mean(),
-        'std_coef': coef_df.std(),
-        'min_coef': coef_df.min(),
-        'max_coef': coef_df.max(),
-        'pct_nonzero': (coef_df != 0).mean() * 100,
-        'pct_positive': (coef_df > 0).mean() * 100,
-        'pct_negative': (coef_df < 0).mean() * 100
-    })
-    
-    return summary
-
-
-def get_coefficient_dataframe(results: Dict[str, Any]) -> pd.DataFrame:
-    """
-    Convert coefficients array to a DataFrame with proper column names.
-    
-    Parameters
-    ----------
-    results : dict
-        Output from lasso_rolling_window function
-        
-    Returns
-    -------
-    pd.DataFrame
-        DataFrame with coefficients for each window
-    """
-    coefficients = results['coefficients']
-    feature_names = results['feature_names']
-    window_starts = results['window_starts']
-    
-    # Create DataFrame
-    coef_df = pd.DataFrame(coefficients, columns=feature_names)
-    coef_df['window_start'] = window_starts
-    coef_df['lambda'] = results['lambdas']
-    coef_df['intercept'] = results.get('intercepts', np.nan)
-    
-    return coef_df
-
-
-# Alias for backward compatibility (both names work)
 rolling_window_lasso = lasso_rolling_window
+
+
+def calculate_r_squared(y_true, y_pred):
+    """Calculate R-squared."""
+    ss_total = np.sum((y_true - np.mean(y_true))**2)
+    ss_residual = np.sum((y_true - y_pred)**2)
+    return 1 - (ss_residual / ss_total)
